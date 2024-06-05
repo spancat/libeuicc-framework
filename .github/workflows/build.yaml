@@ -1,0 +1,36 @@
+name: Build libeUICC iOS Framework
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Configure Build libeUICC iOS Framework
+      run: cmake -B ${{github.workspace}}/build -G Xcode -DCMAKE_TOOLCHAIN_FILE=./cmake/ios/ios.toolchain.cmake -DPLATFORM=OS64COMBINED
+
+    - name: Build Framework Package
+      run: |
+        cmake --build ${{github.workspace}}/build --config Debug
+        cmake --build ${{github.workspace}}/build --config Release
+        tar -czvf "${{github.workspace}}/libeuicc-ios-framework.tar.gz" -C ${{github.workspace}}/build Frameworks
+
+    - name: Upload libeUICC iOS Framework to Artifact
+      uses: actions/upload-artifact@v4
+      with:
+          name: libeUICC iOS Framework
+          path: ${{github.workspace}}/libeuicc-ios-framework.tar.gz
+

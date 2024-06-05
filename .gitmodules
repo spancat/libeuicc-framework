@@ -1,0 +1,6 @@
+[submodule "lpac"]
+	path = lpac
+	url = https://github.com/estkme-group/lpac
+[submodule "ios-cmake"]
+	path = cmake/ios
+	url = https://github.com/leetal/ios-cmake.git
