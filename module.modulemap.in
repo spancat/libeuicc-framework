@@ -1,0 +1,6 @@
+framework module libeuicc {
+  umbrella header "libeuicc.h"
+  export *
+
+  module * { export * }
+}

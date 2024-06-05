@@ -20,7 +20,7 @@ set(CMAKE_OSX_ARCHITECTURES "x86_64" "arm64")
 set(CMAKE_XCODE_ATTRIBUTE_SDKROOT "iphoneos")
 set(CMAKE_XCODE_ATTRIBUTE_ARCHS "x86_64" "arm64")
 
-add_library(${FRAMEWORK_NAME} SHARED ${LIB_EUICC_SRCS})
+add_library(${FRAMEWORK_NAME} SHARED ${LIB_EUICC_SRCS} ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap)
 
 target_link_libraries(${FRAMEWORK_NAME} cjson-static)
 target_include_directories(${FRAMEWORK_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
@@ -34,11 +34,34 @@ foreach(header ${ALL_HEADERS})
     endif()
 endforeach()
 
+# Set the umbrella header path
+set(UMBRELLA_HEADER_PATH ${CMAKE_CURRENT_BINARY_DIR}/libeuicc.h)
+
+# Start writing the umbrella header file
+file(WRITE ${UMBRELLA_HEADER_PATH} "#ifndef LIBEUICC_H\n#define LIBEUICC_H\n")
+
+# Iterate over all headers and convert absolute paths to relative paths
+foreach(header ${ALL_HEADERS})
+    file(RELATIVE_PATH REL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/lpac/euicc ${header})
+    file(APPEND ${UMBRELLA_HEADER_PATH} "#include \"${REL_HEADER}\"\n")
+endforeach()
+
+# Finish the umbrella header file
+file(APPEND ${UMBRELLA_HEADER_PATH} "#endif /* LIBEUICC_H */\n")
+
+# Add UMBRELLA_HEADER_PATH to ALL_HEADERS
+list(APPEND ALL_HEADERS ${UMBRELLA_HEADER_PATH})
+
+# Set modulemap property
+set_property(SOURCE ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap
+  PROPERTY MACOSX_PACKAGE_LOCATION "Modules")
+set(CMAKE_MACOSX_RPATH ON)
+
 # Configure libeuicc iOS frmework
 set(BUNDLE_RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/libeuicc-LICENSE
         ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE
-        ${CMAKE_CURRENT_SOURCE_DIR}/libeuicc.pc)
+        ${CMAKE_CURRENT_BINARY_DIR}/libeuicc.pc)
 
 target_sources(${FRAMEWORK_NAME} PRIVATE "${ALL_HEADERS}")
 target_sources(${FRAMEWORK_NAME} PRIVATE "${BUNDLE_RESOURCES}")
@@ -55,7 +78,10 @@ set_target_properties(${FRAMEWORK_NAME} PROPERTIES
         XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
 
 # Install a pkg-config file
-configure_file(lpac/euicc/libeuicc.pc.in ${CMAKE_CURRENT_SOURCE_DIR}/libeuicc.pc @ONLY)
+configure_file(lpac/euicc/libeuicc.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libeuicc.pc @ONLY)
+
+# Configure a modulemap file
+configure_file(module.modulemap.in ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap @ONLY)
 
 set_target_properties(${FRAMEWORK_NAME} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Frameworks
