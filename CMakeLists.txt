@@ -14,12 +14,6 @@ enable_language(OBJC)
 add_subdirectory(${CMAKE_SOURCE_DIR}/lpac/cjson ${CMAKE_BINARY_DIR}/cjson)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/lpac/euicc LIB_EUICC_SRCS)
 
-set(CMAKE_SYSTEM_NAME iOS)
-set(CMAKE_OSX_SYSROOT "iphoneos")
-set(CMAKE_OSX_ARCHITECTURES "x86_64" "arm64")
-set(CMAKE_XCODE_ATTRIBUTE_SDKROOT "iphoneos")
-set(CMAKE_XCODE_ATTRIBUTE_ARCHS "x86_64" "arm64")
-
 add_library(${FRAMEWORK_NAME} SHARED ${LIB_EUICC_SRCS} ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap)
 
 target_link_libraries(${FRAMEWORK_NAME} cjson-static)
