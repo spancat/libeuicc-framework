@@ -1,4 +1,4 @@
-name: Build libeUICC iOS Framework
+name: Build libeuicc.xcframework Package
 
 on:
   push:
@@ -21,23 +21,100 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Configure Build libeUICC iOS Framework
-      run: cmake -B ${{github.workspace}}/build -G Xcode -DCMAKE_TOOLCHAIN_FILE=./cmake/ios/ios.toolchain.cmake -DPLATFORM=OS64COMBINED
-
-    - name: Build Framework Package
+    - name: Build libeuicc.xcframework Package
       run: |
-        cmake --build ${{github.workspace}}/build --config Debug
-        cmake --build ${{github.workspace}}/build --config Release
-        tar -czvf "${{github.workspace}}/libeuicc-ios-framework.tar.gz" -C ${{github.workspace}}/build Frameworks
+        mkdir -p ${{github.workspace}}/Frameworks
 
-    - name: Upload libeUICC iOS Framework to Artifact
+        declare -a platforms=(
+          "OS64COMBINED" 
+          "SIMULATOR64COMBINED" 
+          "TVOSCOMBINED"
+          "WATCHOSCOMBINED"
+          "MAC_UNIVERSAL"
+        )
+
+        for platform in "${platforms[@]}"
+        do
+            mkdir -p ${{github.workspace}}/Frameworks/$platform
+            mkdir -p ${{github.workspace}}/build/$platform
+
+            cmake -B ${{github.workspace}}/build/$platform -G Xcode -DCMAKE_TOOLCHAIN_FILE=./cmake/ios/ios.toolchain.cmake -DPLATFORM=$platform
+            cmake --build ${{github.workspace}}/build/$platform --config Debug
+            cmake --build ${{github.workspace}}/build/$platform --config Release
+
+            cp -r ${{github.workspace}}/build/$platform/Frameworks/* ${{github.workspace}}/Frameworks/$platform
+        done
+
+        frameworks_debug=()
+        frameworks_release=()
+
+        for platform in "${platforms[@]}"
+        do
+            debug_framework="${{github.workspace}}/Frameworks/$platform/Debug/libeuicc.framework"
+            debug_symbols="${{github.workspace}}/Frameworks/$platform/Debug/libeuicc.framework.dSYM"
+            release_framework="${{github.workspace}}/Frameworks/$platform/Release/libeuicc.framework"
+
+            if [ -e "$debug_framework" ]; then
+                frameworks_debug+=("-framework")
+                frameworks_debug+=("$debug_framework")
+            fi
+
+            if [ -e "$debug_symbols" ]; then
+                frameworks_debug+=("-debug-symbols")
+                frameworks_debug+=("$debug_symbols")
+            fi
+
+            if [ -e "$release_framework" ]; then
+                frameworks_release+=("-framework")
+                frameworks_release+=("$release_framework")
+            fi
+        done
+
+        xcodebuild -create-xcframework \
+            "${frameworks_debug[@]}" \
+            -output "${GITHUB_WORKSPACE}/libeuicc-Debug.xcframework"
+        
+        xcodebuild -create-xcframework \
+            "${frameworks_debug[@]}" \
+            -output "${GITHUB_WORKSPACE}/libeuicc-Release.xcframework"
+
+    - name: Package XCFrameworks into ZIP files
+      run: |
+        # Compress the Debug XCFramework
+        if [ -d "libeuicc-debug.xcframework" ]; then
+            zip -r -9 ${{github.workspace}}/libeuicc-debug.xcframework.zip libeuicc-Debug.xcframework
+        else
+            echo "Debug XCFramework not found."
+        fi
+
+        # Compress the Release XCFramework
+        if [ -d "libeuicc-release.xcframework" ]; then
+            zip -r -9 ${{github.workspace}}/libeuicc-release.xcframework.zip libeuicc-Release.xcframework
+        else
+            echo "Release XCFramework not found."
+        fi
+
+    - name: Check for XCFramework ZIP files
+      run: |
+        ls -lah "${{github.workspace}}/"
+
+    - name: Checksum for libeuicc.xcframework ZIP files
+      run: |
+        swift package compute-checksum ${{github.workspace}}/libeuicc-debug.xcframework.zip > ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256
+        swift package compute-checksum ${{github.workspace}}/libeuicc-release.xcframework.zip > ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256
+
+    - name: Upload libeuicc.xcframework to Artifact
       uses: actions/upload-artifact@v4
       with:
-          name: libeUICC iOS Framework
-          path: ${{github.workspace}}/libeuicc-ios-framework.tar.gz
+          name: artifact
+          path: |
+            ${{github.workspace}}/libeuicc-debug.xcframework.zip
+            ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256
+            ${{github.workspace}}/libeuicc-release.xcframework.zip
+            ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256
 
   release:
-    name: Relase libeUICC iOS Framework
+    name: Relase libeuicc.xcframework Package
     runs-on: macos-latest
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
@@ -45,7 +122,7 @@ jobs:
       contents: write
 
     steps:
-    - name: Download libeUICC iOS Framework
+    - name: Download libeuicc.framework Package
       uses: actions/download-artifact@v4
       with:
           path: ${{github.workspace}}
@@ -53,10 +130,31 @@ jobs:
     - name: Move Artifact to Root
       run: mv ${{github.workspace}}/*/* ${{github.workspace}}/
 
-    - name: Display structure of downloaded files
-      run: ls -R ${{github.workspace}}
+    - name: Display structure of downloaded files and read checksum
+      id: checksum
+      run: |
+        ls -R ${{github.workspace}}
+        echo 'debug<<EOF' >> $GITHUB_OUTPUT
+        cat ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256 >> $GITHUB_OUTPUT
+        echo 'EOF' >> $GITHUB_OUTPUT
+
+        echo 'release<<EOF' >> $GITHUB_OUTPUT
+        cat ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256 >> $GITHUB_OUTPUT
+        echo 'EOF' >> $GITHUB_OUTPUT
     
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-          files: '*'
+          body: |
+            This is a release of libeuicc.xcframework package.
+
+            ```plain
+            libeuicc-debug.xcframework.zip: ${{ steps.checksum.outputs.debug }}
+            libeuicc-release.xcframework.zip: ${{ steps.checksum.outputs.release }}
+            ```
+          append_body: true
+          files: |
+            ${{github.workspace}}/libeuicc-debug.xcframework.zip
+            ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256
+            ${{github.workspace}}/libeuicc-release.xcframework.zip
+            ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256
