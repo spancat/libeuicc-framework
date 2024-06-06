@@ -1,0 +1,9 @@
+#ifndef LIBEUICC_VERSION_H
+#define LIBEUICC_VERSION_H
+
+void libeuicc_get_version(const char **version);
+void libeuicc_get_version_major(int *major);
+void libeuicc_get_version_minor(int *minor);
+void libeuicc_get_version_patch(int *patch);
+
+#endif /* LIBEUICC_VERSION_H */

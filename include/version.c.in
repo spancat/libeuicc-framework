@@ -1,0 +1,34 @@
+#include "version.h"
+
+const int LIBEUICC_VERSION_MAJOR = @PROJECT_VERSION_MAJOR@;
+const int LIBEUICC_VERSION_MINOR = @PROJECT_VERSION_MINOR@;
+const int LIBEUICC_VERSION_PATCH = @PROJECT_VERSION_PATCH@;
+const char* LIBEUICC_VERSION_STRING = "@PROJECT_VERSION@";
+
+// Get the version of the library
+void libeuicc_get_version(const char **version) {
+    if (version) {
+        *version = LIBEUICC_VERSION_STRING;
+    }
+}
+
+// Get the major version of the library
+void libeuicc_get_version_major(int *major) {
+    if (major) {
+        *major = LIBEUICC_VERSION_MAJOR;
+    }
+}
+
+// Get the minor version of the library
+void libeuicc_get_version_minor(int *minor) {
+    if (minor) {
+        *minor = LIBEUICC_VERSION_MINOR;
+    }
+}
+
+// Get the patch version of the library
+void libeuicc_get_version_patch(int *patch) {
+    if (patch) {
+        *patch = LIBEUICC_VERSION_PATCH;
+    }
+}

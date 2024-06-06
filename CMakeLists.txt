@@ -14,7 +14,7 @@ enable_language(OBJC)
 add_subdirectory(${CMAKE_SOURCE_DIR}/lpac/cjson ${CMAKE_BINARY_DIR}/cjson)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/lpac/euicc LIB_EUICC_SRCS)
 
-add_library(${FRAMEWORK_NAME} SHARED ${LIB_EUICC_SRCS} ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap)
+add_library(${FRAMEWORK_NAME} SHARED ${LIB_EUICC_SRCS} ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap ${CMAKE_CURRENT_BINARY_DIR}/version.c)
 
 target_link_libraries(${FRAMEWORK_NAME} cjson-static)
 target_include_directories(${FRAMEWORK_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
@@ -40,11 +40,17 @@ foreach(header ${ALL_HEADERS})
     file(APPEND ${UMBRELLA_HEADER_PATH} "#include \"${REL_HEADER}\"\n")
 endforeach()
 
+# Append the version header file
+file(APPEND ${UMBRELLA_HEADER_PATH} "#include \"version.h\"\n")
+
 # Finish the umbrella header file
 file(APPEND ${UMBRELLA_HEADER_PATH} "#endif /* LIBEUICC_H */\n")
 
 # Add UMBRELLA_HEADER_PATH to ALL_HEADERS
 list(APPEND ALL_HEADERS ${UMBRELLA_HEADER_PATH})
+
+# Add the version header file
+list(APPEND ALL_HEADERS ${CMAKE_CURRENT_BINARY_DIR}/version.h)
 
 # Set modulemap property
 set_property(SOURCE ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap
@@ -76,6 +82,10 @@ configure_file(lpac/euicc/libeuicc.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libeuicc.pc
 
 # Configure a modulemap file
 configure_file(module.modulemap.in ${CMAKE_CURRENT_BINARY_DIR}/module.modulemap @ONLY)
+
+# Configure a version file
+configure_file(include/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h @ONLY)
+configure_file(include/version.c.in ${CMAKE_CURRENT_BINARY_DIR}/version.c @ONLY)
 
 set_target_properties(${FRAMEWORK_NAME} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Frameworks
