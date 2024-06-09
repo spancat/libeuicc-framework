@@ -60,6 +60,7 @@ set(CMAKE_MACOSX_RPATH ON)
 # Configure libeuicc iOS frmework
 set(BUNDLE_RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/libeuicc-LICENSE
+        ${CMAKE_CURRENT_SOURCE_DIR}/cjson-LICENSE
         ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE
         ${CMAKE_CURRENT_BINARY_DIR}/libeuicc.pc)
 
