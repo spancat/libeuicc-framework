@@ -75,7 +75,7 @@ jobs:
             -output "${GITHUB_WORKSPACE}/libeuicc-Debug.xcframework"
         
         xcodebuild -create-xcframework \
-            "${frameworks_debug[@]}" \
+            "${frameworks_release[@]}" \
             -output "${GITHUB_WORKSPACE}/libeuicc-Release.xcframework"
 
     - name: Package XCFrameworks into ZIP files
