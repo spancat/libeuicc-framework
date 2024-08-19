@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.14)
 
 project(libeuicc
-        VERSION 2.0.2
+        VERSION 2.1.0
         DESCRIPTION "libeuicc - eUICC Profile Manager Library"
 	LANGUAGES C CXX OBJC)
 
