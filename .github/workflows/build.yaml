@@ -1,160 +1,245 @@
-name: Build libeuicc.xcframework Package
+name: Build and release libeuicc XCFrameworks
 
 on:
   push:
-    branches: [ "main", "dev" ]
-    tags:
-      - "v*"
+    branches: [main, dev]
+    tags: ['v*']
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Exact stable lpac tag to build (for example v2.3.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libeuicc-${{ github.workflow }}-${{ github.ref }}-${{ inputs.upstream_tag || 'pinned' }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
-    # You can convert this to a matrix build if you need cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: macos-latest
-
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_tag: ${{ steps.source.outputs.tag }}
+      upstream_sha: ${{ steps.source.outputs.sha }}
+      version: ${{ steps.source.outputs.version }}
+      toolchain_sha: ${{ steps.source.outputs.toolchain_sha }}
+      wrapper_sha: ${{ steps.source.outputs.wrapper_sha }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Build libeuicc.xcframework Package
-      run: |
-        mkdir -p ${{github.workspace}}/Frameworks
-
-        declare -a platforms=(
-          "OS64COMBINED" 
-          "SIMULATOR64COMBINED" 
-          "TVOSCOMBINED"
-          "WATCHOSCOMBINED"
-          "MAC_UNIVERSAL"
-        )
-
-        for platform in "${platforms[@]}"
-        do
-            mkdir -p ${{github.workspace}}/Frameworks/$platform
-            mkdir -p ${{github.workspace}}/build/$platform
-
-            cmake -B ${{github.workspace}}/build/$platform -G Xcode -DCMAKE_TOOLCHAIN_FILE=./cmake/ios/ios.toolchain.cmake -DPLATFORM=$platform
-            cmake --build ${{github.workspace}}/build/$platform --config Debug
-            cmake --build ${{github.workspace}}/build/$platform --config Release
-
-            cp -r ${{github.workspace}}/build/$platform/Frameworks/* ${{github.workspace}}/Frameworks/$platform
-        done
-
-        frameworks_debug=()
-        frameworks_release=()
-
-        for platform in "${platforms[@]}"
-        do
-            debug_framework="${{github.workspace}}/Frameworks/$platform/Debug/libeuicc.framework"
-            debug_symbols="${{github.workspace}}/Frameworks/$platform/Debug/libeuicc.framework.dSYM"
-            release_framework="${{github.workspace}}/Frameworks/$platform/Release/libeuicc.framework"
-
-            if [ -e "$debug_framework" ]; then
-                frameworks_debug+=("-framework")
-                frameworks_debug+=("$debug_framework")
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Resolve exact lpac source
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+          REF_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root_version="$(sed -nE 's/^set\(LIBEUICC_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\)$/\1/p' CMakeLists.txt | head -n 1)"
+          [[ "$root_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Root default version missing' >&2; exit 1; }
+          pinned_sha="$(git -C lpac rev-parse HEAD)"
+          wrapper_sha="$(git rev-parse HEAD)"
+          if [[ "$EVENT_NAME" == workflow_dispatch || "$GITHUB_REF" == refs/tags/* ]]; then
+            if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+              tag="$UPSTREAM_TAG"
+            else
+              tag="$REF_NAME"
+              [[ "$GITHUB_REF" == "refs/tags/$tag" ]] || { echo 'Event tag ref differs from ref_name' >&2; exit 1; }
             fi
-
-            if [ -e "$debug_symbols" ]; then
-                frameworks_debug+=("-debug-symbols")
-                frameworks_debug+=("$debug_symbols")
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Only stable vMAJOR.MINOR.PATCH tags are supported' >&2; exit 1; }
+            tag_ref="refs/tags/$tag"
+            git -C lpac fetch --no-tags --depth=1 origin "$tag_ref"
+            sha="$(git -C lpac rev-parse 'FETCH_HEAD^{commit}')"
+            remote_sha="$(git ls-remote https://github.com/estkme-group/lpac.git "$tag_ref" "$tag_ref^{}" | awk -v ref="$tag_ref" '$2 == ref || $2 == ref "^{}" { value=$1 } END { print value }')"
+            [[ "$sha" == "$remote_sha" ]] || { echo 'Fetched lpac commit does not match exact upstream tag' >&2; exit 1; }
+            version="${tag#v}"
+            if [[ "$EVENT_NAME" == push ]]; then
+              [[ "$root_version" == "$version" ]] || { echo 'Tag release requires matching root default version' >&2; exit 1; }
+              [[ "$pinned_sha" == "$sha" ]] || { echo 'Tag release requires matching lpac gitlink' >&2; exit 1; }
+              wrapper_tag_sha="$(git ls-remote origin "$GITHUB_REF" "$GITHUB_REF^{}" | awk -v ref="$GITHUB_REF" '$2 == ref || $2 == ref "^{}" { value=$1 } END { print value }')"
+              [[ "$wrapper_tag_sha" == "$wrapper_sha" ]] || { echo 'Wrapper tag does not point to checked-out commit' >&2; exit 1; }
             fi
+          else
+            sha="$pinned_sha"
+            version="$root_version"
+            tag="v$version"
+          fi
+          {
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo "version=$version"
+            echo "toolchain_sha=$(git -C cmake/ios rev-parse HEAD)"
+            echo "wrapper_sha=$wrapper_sha"
+          } >> "$GITHUB_OUTPUT"
+          echo "lpac: $tag $sha"
 
-            if [ -e "$release_framework" ]; then
-                frameworks_release+=("-framework")
-                frameworks_release+=("$release_framework")
-            fi
-        done
+  build:
+    needs: prepare
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: OS64, architectures: arm64 }
+          - { platform: SIMULATORARM64, architectures: 'arm64;x86_64' }
+          - { platform: TVOS, architectures: arm64 }
+          - { platform: SIMULATORARM64_TVOS, architectures: 'arm64;x86_64' }
+          - { platform: WATCHOS, architectures: 'arm64_32;arm64' }
+          - { platform: SIMULATORARM64_WATCHOS, architectures: 'arm64;x86_64' }
+          - { platform: MAC_UNIVERSAL, architectures: 'arm64;x86_64' }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build both configurations from resolved source
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCHITECTURES: ${{ matrix.architectures }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          UPSTREAM_TAG: ${{ needs.prepare.outputs.upstream_tag }}
+          UPSTREAM_VERSION: ${{ needs.prepare.outputs.version }}
+          DISPATCHED: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: bash scripts/ci/build-platform.sh
+      - name: Upload framework slice
+        uses: actions/upload-artifact@v4
+        with:
+          name: framework-${{ matrix.platform }}
+          path: build/ci-stage/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 7
 
-        xcodebuild -create-xcframework \
-            "${frameworks_debug[@]}" \
-            -output "${GITHUB_WORKSPACE}/libeuicc-Debug.xcframework"
-        
-        xcodebuild -create-xcframework \
-            "${frameworks_release[@]}" \
-            -output "${GITHUB_WORKSPACE}/libeuicc-Release.xcframework"
+  package:
+    needs: [prepare, build]
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: framework-*
+          path: build/ci-collected
+      - name: Assemble and verify both XCFrameworks
+        env:
+          UPSTREAM_TAG: ${{ needs.prepare.outputs.upstream_tag }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          UPSTREAM_VERSION: ${{ needs.prepare.outputs.version }}
+          TOOLCHAIN_SHA: ${{ needs.prepare.outputs.toolchain_sha }}
+          WRAPPER_SHA: ${{ needs.prepare.outputs.wrapper_sha }}
+        shell: bash
+        run: python3 scripts/ci/package.py
+      - name: Upload complete package
+        uses: actions/upload-artifact@v4
+        with:
+          name: libeuicc-package
+          path: build/ci-package/*
+          if-no-files-found: error
+          retention-days: 30
 
-    - name: Package XCFrameworks into ZIP files
-      run: |
-        # Compress the Debug XCFramework
-        if [ -d "libeuicc-debug.xcframework" ]; then
-            zip -r -9 ${{github.workspace}}/libeuicc-debug.xcframework.zip libeuicc-Debug.xcframework
-        else
-            echo "Debug XCFramework not found."
-        fi
-
-        # Compress the Release XCFramework
-        if [ -d "libeuicc-release.xcframework" ]; then
-            zip -r -9 ${{github.workspace}}/libeuicc-release.xcframework.zip libeuicc-Release.xcframework
-        else
-            echo "Release XCFramework not found."
-        fi
-
-    - name: Check for XCFramework ZIP files
-      run: |
-        ls -lah "${{github.workspace}}/"
-
-    - name: Checksum for libeuicc.xcframework ZIP files
-      run: |
-        swift package compute-checksum ${{github.workspace}}/libeuicc-debug.xcframework.zip > ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256
-        swift package compute-checksum ${{github.workspace}}/libeuicc-release.xcframework.zip > ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256
-
-    - name: Upload libeuicc.xcframework to Artifact
-      uses: actions/upload-artifact@v4
-      with:
-          name: artifact
-          path: |
-            ${{github.workspace}}/libeuicc-debug.xcframework.zip
-            ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256
-            ${{github.workspace}}/libeuicc-release.xcframework.zip
-            ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256
-
-  release:
-    name: Relase libeuicc.xcframework Package
-    runs-on: macos-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare, package]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: libeuicc-publication
+      cancel-in-progress: false
     permissions:
       contents: write
-
     steps:
-    - name: Download libeuicc.framework Package
-      uses: actions/download-artifact@v4
-      with:
-          path: ${{github.workspace}}
-
-    - name: Move Artifact to Root
-      run: mv ${{github.workspace}}/*/* ${{github.workspace}}/
-
-    - name: Display structure of downloaded files and read checksum
-      id: checksum
-      run: |
-        ls -R ${{github.workspace}}
-        echo 'debug<<EOF' >> $GITHUB_OUTPUT
-        cat ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256 >> $GITHUB_OUTPUT
-        echo 'EOF' >> $GITHUB_OUTPUT
-
-        echo 'release<<EOF' >> $GITHUB_OUTPUT
-        cat ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256 >> $GITHUB_OUTPUT
-        echo 'EOF' >> $GITHUB_OUTPUT
-    
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-          body: |
-            This is a release of libeuicc.xcframework package.
-
-            ```plain
-            libeuicc-debug.xcframework.zip: ${{ steps.checksum.outputs.debug }}
-            libeuicc-release.xcframework.zip: ${{ steps.checksum.outputs.release }}
-            ```
-          append_body: true
-          files: |
-            ${{github.workspace}}/libeuicc-debug.xcframework.zip
-            ${{github.workspace}}/libeuicc-debug.xcframework.zip.sha256
-            ${{github.workspace}}/libeuicc-release.xcframework.zip
-            ${{github.workspace}}/libeuicc-release.xcframework.zip.sha256
+      - uses: actions/download-artifact@v4
+        with:
+          name: libeuicc-package
+          path: package
+      - name: Refuse existing release and verify pushed tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.upstream_tag }}
+          WRAPPER_SHA: ${{ needs.prepare.outputs.wrapper_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists" >&2
+            exit 1
+          fi
+          ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")"
+          object_type="$(jq -r '.object.type' <<< "$ref_json")"
+          object_sha="$(jq -r '.object.sha' <<< "$ref_json")"
+          for depth in 1 2 3 4 5; do
+            [[ "$object_type" == tag ]] || break
+            tag_json="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha")"
+            object_type="$(jq -r '.object.type' <<< "$tag_json")"
+            object_sha="$(jq -r '.object.sha' <<< "$tag_json")"
+          done
+          [[ "$object_type" == commit && "$object_sha" == "$WRAPPER_SHA" ]] || {
+            echo "Pushed tag does not resolve to the validated wrapper commit" >&2
+            exit 1
+          }
+      - name: Create draft, upload assets, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.upstream_tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd package
+          sha256sum -c SHA256SUMS
+          python3 - <<'PY'
+          import json, os
+          with open('libeuicc-manifest.json', encoding='utf-8') as file:
+              manifest = json.load(file)
+          assert manifest['version'] == os.environ['VERSION']
+          assert manifest['upstream_tag'] == os.environ['TAG']
+          assert len(manifest['slices']) == 7
+          PY
+          {
+            echo "libeuicc XCFrameworks v$VERSION"
+            echo
+            echo "Build provenance and platform slices are in libeuicc-manifest.json."
+            echo
+            echo '```plain'
+            cat SHA256SUMS
+            echo '```'
+          } > release-notes.md
+          existing_tags_text="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')"
+          mapfile -t existing_tags <<< "$existing_tags_text"
+          latest="$(python3 - "$VERSION" "${existing_tags[@]}" <<'PY'
+          import re, sys
+          candidate = tuple(map(int, sys.argv[1].split('.')))
+          existing = [
+              tuple(map(int, match.groups()))
+              for tag in sys.argv[2:]
+              if (match := re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)', tag))
+          ]
+          print('true' if not existing or candidate > max(existing) else 'false')
+          PY
+          )"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --title "$TAG" --notes-file release-notes.md \
+            --draft --latest=false
+          gh release upload "$TAG" \
+            libeuicc-debug.xcframework.zip libeuicc-debug.xcframework.zip.sha256 \
+            libeuicc-release.xcframework.zip libeuicc-release.xcframework.zip.sha256 \
+            libeuicc-manifest.json \
+            --repo "$GITHUB_REPOSITORY"
+          actual="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | sort)"
+          expected="$(printf '%s\n' libeuicc-debug.xcframework.zip libeuicc-debug.xcframework.zip.sha256 libeuicc-release.xcframework.zip libeuicc-release.xcframework.zip.sha256 libeuicc-manifest.json | sort)"
+          [[ "$actual" == "$expected" ]] || { echo 'Release asset set differs from verified package' >&2; exit 1; }
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"

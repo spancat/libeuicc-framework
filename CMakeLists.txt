@@ -1,7 +1,16 @@
 cmake_minimum_required (VERSION 3.14)
 
+set(LIBEUICC_VERSION "2.3.0")
+set(LIBEUICC_VERSION_OVERRIDE "" CACHE STRING "Framework release version (X.Y.Z)")
+if(NOT LIBEUICC_VERSION_OVERRIDE STREQUAL "")
+    if(NOT LIBEUICC_VERSION_OVERRIDE MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+        message(FATAL_ERROR "LIBEUICC_VERSION_OVERRIDE must be X.Y.Z")
+    endif()
+    set(LIBEUICC_VERSION "${LIBEUICC_VERSION_OVERRIDE}")
+endif()
+
 project(libeuicc
-        VERSION 2.1.0
+        VERSION ${LIBEUICC_VERSION}
         DESCRIPTION "libeuicc - eUICC Profile Manager Library"
 	LANGUAGES C CXX OBJC)
 
@@ -68,6 +77,11 @@ target_sources(${FRAMEWORK_NAME} PRIVATE "${ALL_HEADERS}")
 target_sources(${FRAMEWORK_NAME} PRIVATE "${BUNDLE_RESOURCES}")
 
 set_target_properties(${FRAMEWORK_NAME} PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS YES
+        C_VISIBILITY_PRESET default
+        XCODE_ATTRIBUTE_GCC_SYMBOLS_PRIVATE_EXTERN "NO"
         FRAMEWORK TRUE
         FRAMEWORK_VERSION A
         MACOSX_FRAMEWORK_IDENTIFIER me.estk.libeuicc

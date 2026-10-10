@@ -12,7 +12,7 @@
 | Clang module、Objective-C / Swift 导入 | [module.modulemap.in](module.modulemap.in)、根 CMake 生成的 umbrella header |
 | eUICC 生命周期、APDU / HTTP 回调、协议实现 | [euicc.h](lpac/euicc/euicc.h)、[interface.h](lpac/euicc/interface.h)、`lpac/euicc/` 中相关实现 |
 | Apple SDK、架构、deployment target 或 toolchain | [ios.toolchain.cmake](cmake/ios/ios.toolchain.cmake)、[工具链说明](cmake/ios/README.md) |
-| 构建矩阵、XCFramework、ZIP、checksum 或 Release | [根 CI](.github/workflows/build.yaml) |
+| 构建矩阵、XCFramework、ZIP、checksum 或 Release | [根 CI](.github/workflows/build.yaml)、[发布操作](docs/releases.md)、[构建脚本](scripts/ci/build-platform.sh)、[产物验证](scripts/ci/package.py) |
 | 子模块来源或 lpac 开发约定 | [.gitmodules](.gitmodules)、[lpac README](lpac/README.md)、[开发说明](lpac/docs/DEVELOPERS.md) |
 
 ## 查证与事实源
@@ -29,7 +29,7 @@
 工具不可用、结果不足或索引与当前 checkout 不匹配时，限定范围回退 `rg` / 直接源码；字符串、错误消息、配置值和非代码文件可直接检索。图未命中不等于源码不存在。
 <!-- codebase-memory-mcp:end -->
 
-- 版本、target、打包内容与依赖以当前根 [CMakeLists.txt](CMakeLists.txt) 为准；framework 版本来自根 `PROJECT_VERSION`，不能由 lpac tag 或上游版本推断。
+- 版本、target、打包内容与依赖以当前根 [CMakeLists.txt](CMakeLists.txt) 为准；默认版本由 `LIBEUICC_VERSION` 定义，构建可用 `LIBEUICC_VERSION_OVERRIDE` 覆盖，最终统一进入 `PROJECT_VERSION`。发布必须同时验证默认版本、lpac gitlink 与指定上游 tag 一致，不能由上游 CMake 版本推断。
 - 工具链支持范围以锁定的 `cmake/ios` 源码为准；上游最新 README 和根 CI 的平台列表都不能代替当前版本的产物验证。
 - 新增约定保持短而具体。文档用中文，函数名、路径、命令、配置键与平台值保留原文；不引用本机参考仓路径作为构建前提，也不创建指向尚不存在的 skills、测试或文档的路由。
 
@@ -59,7 +59,7 @@ cmake --build build/agent-MAC_UNIVERSAL --config Debug --target libeuicc
 cmake --build build/agent-MAC_UNIVERSAL --config Release --target libeuicc
 ```
 
-当前根 CI 声明 `OS64COMBINED`、`SIMULATOR64COMBINED`、`TVOSCOMBINED`、`WATCHOSCOMBINED`、`MAC_UNIVERSAL`。只验证受影响平台；全矩阵用于涉及整体交付的任务。`COMBINED` 要使用 Xcode，涉及 install-combined 时按锁定工具链核对安装阶段和实际切片，不能仅从名称或构建成功推断 device / simulator 覆盖。
+根 CI 将 iOS、tvOS、watchOS 的 device / simulator 分开构建，再加入 macOS universal，共七个 SDK 变体；架构、runner 和 Xcode 版本以 workflow 与验证脚本为准。只验证受影响平台，全矩阵用于整体交付。不要使用跨 device / simulator 的 `COMBINED` 产物代替 XCFramework 切片，也不能仅靠 CPU 架构推断平台身份。
 
 ## 最小验证与交付
 
@@ -75,10 +75,12 @@ cmake --build build/agent-MAC_UNIVERSAL --config Release --target libeuicc
 - 不新增读取源码、CMake、workflow 或文档原始文本并以 contains / 正则断言实现接线的测试。包装用真实编译、链接与产物；协议行为用可执行用例验证，不以静态文字匹配代替。
 - 按需用 `plutil`、`file`、`lipo`、`otool`、`nm` 检查真实产物；设备与 simulator 的平台身份不能只靠 CPU 架构判断。签名、部署版本或构建参数变化也要核对最终 bundle / Mach-O。
 - 交付写清变更范围、实际执行的命令和结果，以及未运行项和原因；区分文档检查、编译/导入/链接、打包与实机验证。不要把 CI 配置或上游功能说明写成已经通过的验收结论。
+- 正式发布沿用 tag 模式：推送 `vMAJOR.MINOR.PATCH` tag 触发构建与发布，branch push / PR 和 `workflow_dispatch` 只验证。tag、根默认版本与上游 lpac gitlink 必须对应；完整验证两个配置的切片、版本、许可证、公开符号、消费方与 dSYM UUID 后才发布，既有正式 release 不覆盖。保留历史小写 ZIP / checksum 文件名；manifest 记录 wrapper、lpac 与 toolchain 的确切 SHA。
 
 ## Git 与设备数据
 
 - 修改前后运行 `git status --short --branch --untracked-files=all`，同时核对受影响子模块状态，保留无关改动。提交仅暂存本任务路径，检查 `git diff --cached --check` 与 `git diff --cached --name-status`；遵循现有 `type(scope): subject` 提交风格。
+- `codex/*` 分支只在本地使用，不推送到远端，包括显式 refspec、`--all` 或其他间接推送方式。完成验证后按授权将改动集成到正式分支，发布只推对应版本的 tag。已推送的临时分支在任务结束后按授权删除，先确认提交仍由正式分支或 tag 保留。
 - 构建与交付产物放在专用构建目录，不提交 framework、XCFramework、ZIP、checksum、缓存或签名材料。
 - 不打印或提交凭据、私钥、签名证书、激活码、确认码及未脱敏的设备标识、APDU / HTTP 载荷。启用 `LIBEUICC_DEBUG_APDU` 前确认数据范围；测试使用最小脱敏 fixture。
 - 真实 profile 下载、启用/禁用、删除、notification 处理及远端发布按已有明确授权范围执行；文档整理或构建验证本身不构成这些操作的授权。
