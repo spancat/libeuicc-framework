@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.14)
 
-set(LIBEUICC_VERSION "2.3.0")
+set(LIBEUICC_VERSION "2.2.1")
 set(LIBEUICC_VERSION_OVERRIDE "" CACHE STRING "Framework release version (X.Y.Z)")
 if(NOT LIBEUICC_VERSION_OVERRIDE STREQUAL "")
     if(NOT LIBEUICC_VERSION_OVERRIDE MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
